@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Estatísticas · Campos de Golfe Portugal</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;background:#f0f4f1;color:#1a1a1a;min-height:100vh}
+.header{background:linear-gradient(135deg,#1a472a,#2d6a4f);padding:24px 20px 32px;position:relative;overflow:hidden}
+.header::before{content:'';position:absolute;inset:0;opacity:.06;
+  background-image:repeating-linear-gradient(45deg,#fff 0,#fff 1px,transparent 0,transparent 50%);
+  background-size:18px 18px}
+.header-inner{max-width:960px;margin:0 auto;position:relative;display:flex;justify-content:space-between;align-items:center}
+.header h1{color:#fff;font-size:20px;font-weight:700;margin-bottom:3px}
+.header p{color:rgba(255,255,255,.6);font-size:13px}
+.header-btns{display:flex;gap:8px}
+.btn{padding:8px 16px;border-radius:8px;border:none;cursor:pointer;font-size:13px;font-weight:500;font-family:inherit}
+.btn-outline{background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.3)}
+.btn-danger{background:#c0392b;color:#fff}
+.btn-outline:hover{background:rgba(255,255,255,.25)}
+
+.main{max-width:960px;margin:0 auto;padding:24px 16px 48px}
+
+/* KPI cards */
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:28px}
+.kpi{background:#fff;border-radius:12px;padding:16px 18px;border:1px solid #e5e5e5}
+.kpi .val{font-size:32px;font-weight:700;color:#1a472a;line-height:1}
+.kpi .lbl{font-size:12px;color:#999;margin-top:4px}
+.kpi .sub{font-size:11px;color:#bbb;margin-top:2px}
+
+/* Section */
+.section{background:#fff;border-radius:12px;padding:20px;border:1px solid #e5e5e5;margin-bottom:20px}
+.section h2{font-size:14px;font-weight:700;color:#333;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+
+/* Bar charts */
+.bar-list{display:flex;flex-direction:column;gap:8px}
+.bar-item{display:flex;align-items:center;gap:10px}
+.bar-label{font-size:13px;color:#444;width:180px;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bar-label.wide{width:240px}
+.bar-track{flex:1;background:#f0f0f0;border-radius:6px;height:22px;overflow:hidden}
+.bar-fill{height:100%;border-radius:6px;background:linear-gradient(90deg,#1a472a,#2d6a4f);display:flex;align-items:center;padding-left:8px;min-width:30px;transition:width .4s ease}
+.bar-fill span{color:#fff;font-size:11px;font-weight:600;white-space:nowrap}
+.bar-count{font-size:12px;color:#999;width:32px;text-align:right;flex-shrink:0}
+
+/* Pill charts (browser, OS, screen) */
+.pill-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px}
+.pill{background:#f8f8f8;border-radius:10px;padding:12px;text-align:center;border:1px solid #efefef}
+.pill .pval{font-size:22px;font-weight:700;color:#1a472a}
+.pill .plbl{font-size:12px;color:#888;margin-top:2px}
+.pill .ppct{font-size:11px;color:#bbb;margin-top:1px}
+
+/* Timeline */
+.timeline{display:flex;flex-direction:column;gap:6px;max-height:280px;overflow-y:auto}
+.tl-item{display:flex;gap:12px;align-items:flex-start;font-size:12px;padding:8px 10px;background:#f8f8f8;border-radius:8px}
+.tl-time{color:#bbb;flex-shrink:0;width:140px}
+.tl-text{color:#444}
+.tl-badge{background:#e8f5e9;color:#1a472a;border-radius:5px;padding:1px 7px;font-size:11px;font-weight:600}
+
+/* Tag cloud */
+.tag-cloud{display:flex;flex-wrap:wrap;gap:8px}
+.tag{border-radius:20px;padding:5px 13px;font-size:13px;font-weight:500;cursor:default}
+
+/* Table */
+.data-table{width:100%;border-collapse:collapse;font-size:13px}
+.data-table th{padding:8px 12px;text-align:left;font-size:11px;font-weight:700;color:#1a472a;background:#f0f7f2;text-transform:uppercase;letter-spacing:.4px}
+.data-table td{padding:9px 12px;border-top:1px solid #f0f0f0}
+.data-table tr:hover td{background:#fafafa}
+
+/* Empty state */
+.empty{text-align:center;padding:40px;color:#bbb}
+.empty .icon{font-size:36px;margin-bottom:10px}
+
+/* Export */
+.export-row{display:flex;gap:8px;margin-top:16px}
+
+/* Grid 2col */
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px}
+@media(max-width:640px){.grid2{grid-template-columns:1fr}.bar-label{width:120px}.bar-label.wide{width:160px}}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-inner">
+    <div>
+      <h1>⛳ Estatísticas de Utilização</h1>
+      <p>Campos de Golfe Portugal · dados locais (localStorage)</p>
+    </div>
+    <div class="header-btns">
+      <button class="btn btn-outline" onclick="exportJSON()">⬇ Exportar JSON</button>
+      <button class="btn btn-outline" onclick="exportCSV()">⬇ Exportar CSV</button>
+      <button class="btn btn-danger" onclick="clearData()">🗑 Limpar dados</button>
+    </div>
+  </div>
+</div>
+
+<div class="main">
+  <div id="no-data" class="empty" style="display:none">
+    <div class="icon">📊</div>
+    <p>Ainda não há dados registados.</p>
+    <p style="font-size:13px;margin-top:8px;color:#ccc">Abre o ficheiro <strong>campos-golfe-portugal.html</strong> e navega um pouco.</p>
+  </div>
+
+  <div id="dashboard">
+    <!-- KPIs -->
+    <div class="kpi-grid" id="kpis"></div>
+
+    <!-- Timeline + Pesquisas -->
+    <div class="grid2">
+      <div class="section">
+        <h2>🕐 Últimos Acessos</h2>
+        <div class="timeline" id="timeline"></div>
+      </div>
+      <div class="section">
+        <h2>🔍 Pesquisas Feitas</h2>
+        <div id="searches-content"></div>
+      </div>
+    </div>
+
+    <!-- Campos mais vistos -->
+    <div class="section">
+      <h2>🏆 Campos Mais Consultados</h2>
+      <div class="bar-list" id="top-campos"></div>
+    </div>
+
+    <!-- Browser + OS + Screen -->
+    <div class="grid2">
+      <div class="section">
+        <h2>🌐 Browser</h2>
+        <div class="pill-grid" id="browsers"></div>
+      </div>
+      <div class="section">
+        <h2>💻 Sistema Operativo</h2>
+        <div class="pill-grid" id="os-list"></div>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="section">
+        <h2>📐 Dispositivo</h2>
+        <div class="pill-grid" id="screens"></div>
+      </div>
+      <div class="section">
+        <h2>🌍 Idioma do Browser</h2>
+        <div class="pill-grid" id="langs"></div>
+      </div>
+    </div>
+
+    <!-- Filtros usados -->
+    <div class="grid2">
+      <div class="section">
+        <h2>📍 Distritos Pesquisados</h2>
+        <div class="bar-list" id="filter-dist"></div>
+      </div>
+      <div class="section">
+        <h2>🎯 Facilidades Pesquisadas</h2>
+        <div class="bar-list" id="filter-fac"></div>
+      </div>
+    </div>
+
+    <!-- Raw data -->
+    <div class="section">
+      <h2>📋 Histórico de Sessões (raw)</h2>
+      <div style="overflow-x:auto">
+        <table class="data-table" id="sessions-table"></table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const STORE_KEY = 'golf_pt_analytics';
+
+function getStore() {
+  try { return JSON.parse(localStorage.getItem(STORE_KEY) || 'null'); } catch(e) { return null; }
+}
+
+function countBy(arr, key) {
+  const map = {};
+  arr.forEach(item => {
+    const v = item[key] || 'Desconhecido';
+    map[v] = (map[v] || 0) + 1;
+  });
+  return map;
+}
+
+function sortedEntries(obj, limit) {
+  return Object.entries(obj).sort((a,b)=>b[1]-a[1]).slice(0, limit||999);
+}
+
+function barHTML(label, count, max, wide) {
+  const pct = max > 0 ? Math.round(count / max * 100) : 0;
+  const w = Math.max(pct, 5);
+  return `<div class="bar-item">
+    <span class="bar-label${wide?' wide':''}" title="${label}">${label}</span>
+    <div class="bar-track">
+      <div class="bar-fill" style="width:${w}%"><span>${count}</span></div>
+    </div>
+    <span class="bar-count">${pct}%</span>
+  </div>`;
+}
+
+function pillsHTML(obj, total) {
+  return sortedEntries(obj).map(([k,v]) => {
+    const pct = total > 0 ? Math.round(v/total*100) : 0;
+    return `<div class="pill">
+      <div class="pval">${v}</div>
+      <div class="plbl">${k}</div>
+      <div class="ppct">${pct}%</div>
+    </div>`;
+  }).join('');
+}
+
+function formatDate(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleDateString('pt-PT') + ' ' + d.toLocaleTimeString('pt-PT', {hour:'2-digit',minute:'2-digit'});
+}
+
+function render() {
+  const store = getStore();
+  const dash = document.getElementById('dashboard');
+  const noData = document.getElementById('no-data');
+
+  if (!store || !store.sessions || store.sessions.length === 0) {
+    dash.style.display = 'none';
+    noData.style.display = 'block';
+    return;
+  }
+  dash.style.display = 'block';
+  noData.style.display = 'none';
+
+  const sessions = store.sessions || [];
+  const camposVistos = store.campos_vistos || {};
+  const pesquisas = store.pesquisas || [];
+  const filtros = store.filtros || {};
+  const totalSessions = sessions.length;
+
+  // ── KPIs ──────────────────────────────────────────────────
+  const firstSession = sessions[0]?.ts;
+  const lastSession = sessions[sessions.length-1]?.ts;
+  const totalCamposVistos = Object.values(camposVistos).reduce((a,b)=>a+b,0);
+  const uniqueCampos = Object.keys(camposVistos).length;
+
+  document.getElementById('kpis').innerHTML = [
+    [store.pageviews || totalSessions, 'Acessos totais', ''],
+    [totalCamposVistos, 'Campos consultados', `${uniqueCampos} únicos`],
+    [pesquisas.length, 'Pesquisas feitas', ''],
+    [store.handicaps || 0, 'Handicaps calculados', ''],
+    [Object.values(filtros.distrito||{}).reduce((a,b)=>a+b,0), 'Filtros distrito', ''],
+    [firstSession ? formatDate(firstSession).split(' ')[0] : '—', 'Primeiro acesso', ''],
+  ].map(([val,lbl,sub]) => `<div class="kpi">
+    <div class="val">${val}</div>
+    <div class="lbl">${lbl}</div>
+    ${sub ? `<div class="sub">${sub}</div>` : ''}
+  </div>`).join('');
+
+  // ── TIMELINE ──────────────────────────────────────────────
+  const tlItems = [...sessions].reverse().slice(0,20).map(s =>
+    `<div class="tl-item">
+      <span class="tl-time">${formatDate(s.ts)}</span>
+      <span class="tl-text">
+        <span class="tl-badge">${s.browser}</span>
+        <span class="tl-badge" style="background:#e3f2fd;color:#1565c0;margin-left:4px">${s.os}</span>
+        <span style="color:#bbb;margin-left:4px;font-size:11px">${s.screen} · ${s.lang}</span>
+      </span>
+    </div>`
+  ).join('') || '<p style="color:#bbb;font-size:13px">Sem registos</p>';
+  document.getElementById('timeline').innerHTML = tlItems;
+
+  // ── PESQUISAS ─────────────────────────────────────────────
+  if (pesquisas.length === 0) {
+    document.getElementById('searches-content').innerHTML = '<p style="color:#bbb;font-size:13px">Nenhuma pesquisa registada.</p>';
+  } else {
+    // Top termos
+    const termCount = {};
+    pesquisas.forEach(p => {
+      const q = p.q.toLowerCase().trim();
+      termCount[q] = (termCount[q] || 0) + 1;
+    });
+    const topTerms = sortedEntries(termCount, 20);
+    const maxT = topTerms[0]?.[1] || 1;
+    document.getElementById('searches-content').innerHTML =
+      `<div class="bar-list">${topTerms.map(([k,v]) => barHTML(k, v, maxT)).join('')}</div>`;
+  }
+
+  // ── TOP CAMPOS ────────────────────────────────────────────
+  const topCampos = sortedEntries(camposVistos, 20);
+  const maxC = topCampos[0]?.[1] || 1;
+  document.getElementById('top-campos').innerHTML = topCampos.length
+    ? topCampos.map(([k,v]) => barHTML(k, v, maxC, true)).join('')
+    : '<p style="color:#bbb;font-size:13px">Nenhum campo consultado ainda.</p>';
+
+  // ── BROWSER / OS / SCREEN / LANG ─────────────────────────
+  const browsers = countBy(sessions, 'browser');
+  const osList   = countBy(sessions, 'os');
+  const screens  = countBy(sessions, 'screen');
+  const langs    = countBy(sessions, 'lang');
+
+  document.getElementById('browsers').innerHTML = pillsHTML(browsers, totalSessions);
+  document.getElementById('os-list').innerHTML  = pillsHTML(osList, totalSessions);
+  document.getElementById('screens').innerHTML  = pillsHTML(screens, totalSessions);
+  document.getElementById('langs').innerHTML    = pillsHTML(langs, totalSessions);
+
+  // ── FILTROS ───────────────────────────────────────────────
+  const distEntries = sortedEntries(filtros.distrito || {}, 15);
+  const facEntries  = sortedEntries(filtros.facilidade || {}, 15);
+  const maxD = distEntries[0]?.[1] || 1;
+  const maxF = facEntries[0]?.[1] || 1;
+
+  document.getElementById('filter-dist').innerHTML = distEntries.length
+    ? distEntries.map(([k,v]) => barHTML(k, v, maxD)).join('')
+    : '<p style="color:#bbb;font-size:13px">Sem dados</p>';
+  document.getElementById('filter-fac').innerHTML = facEntries.length
+    ? facEntries.map(([k,v]) => barHTML(k, v, maxF)).join('')
+    : '<p style="color:#bbb;font-size:13px">Sem dados</p>';
+
+  // ── SESSIONS TABLE ────────────────────────────────────────
+  const cols = ['Data/Hora','Browser','OS','Dispositivo','Idioma','Resolução'];
+  const rows = [...sessions].reverse().slice(0,50).map(s =>
+    `<tr>
+      <td>${formatDate(s.ts)}</td>
+      <td>${s.browser||'—'}</td>
+      <td>${s.os||'—'}</td>
+      <td>${s.screen||'—'}</td>
+      <td>${s.lang||'—'}</td>
+      <td style="color:#bbb">${s.w&&s.h ? s.w+'×'+s.h : '—'}</td>
+    </tr>`
+  ).join('');
+  document.getElementById('sessions-table').innerHTML =
+    `<thead><tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead><tbody>${rows}</tbody>`;
+}
+
+// ── EXPORT ────────────────────────────────────────────────
+function exportJSON() {
+  const store = getStore();
+  if (!store) return alert('Sem dados para exportar.');
+  const blob = new Blob([JSON.stringify(store, null, 2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'golf-stats-' + new Date().toISOString().slice(0,10) + '.json';
+  a.click();
+}
+
+function exportCSV() {
+  const store = getStore();
+  if (!store || !store.sessions) return alert('Sem dados para exportar.');
+  const header = 'data,browser,os,dispositivo,idioma,largura,altura\n';
+  const rows = store.sessions.map(s =>
+    [s.ts, s.browser, s.os, s.screen, s.lang, s.w, s.h].join(',')
+  ).join('\n');
+  const blob = new Blob([header + rows], {type:'text/csv;charset=utf-8'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'golf-sessoes-' + new Date().toISOString().slice(0,10) + '.csv';
+  a.click();
+}
+
+function clearData() {
+  if (!confirm('Apagar todos os dados de estatísticas? Esta acção não pode ser revertida.')) return;
+  localStorage.removeItem(STORE_KEY);
+  render();
+}
+
+// Render on load
+render();
+
+// Auto-refresh every 5s (útil se tiveres as duas janelas abertas em simultâneo)
+setInterval(render, 5000);
+</script>
+</body>
+</html>

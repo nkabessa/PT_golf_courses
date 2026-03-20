@@ -1,29 +1,48 @@
-# ⛳ Campos de Golfe Portugal — Dataset & Ferramentas
+# ⛳ Campos de Golfe Portugal
 
-Projeto de extração e consulta de todos os campos de golfe nacionais registados na **Federação Portuguesa de Golfe (FPG)**.
+Dataset completo e interface web dos campos de golfe nacionais registados na **Federação Portuguesa de Golfe (FPG)**.
 
 ---
 
 ## 📦 Ficheiros
 
-| Ficheiro | Descrição |
-|---|---|
-| `campos-golfe-portugal.json` | Dataset completo com todos os campos |
-| `scrape-campos-golfe.py` | Script Python para extrair/atualizar o JSON |
-| `campos-golfe-portugal.jsx` | App React para consultar cartões de campo |
+| Ficheiro | Tamanho | Descrição |
+|---|---|---|
+| `index.html` | ~1 MB | App web — duplo clique para abrir, zero instalação |
+| `stats.html` | ~15 KB | Dashboard de estatísticas de utilização |
+| `campos-golfe-portugal.json` | ~576 KB | Dataset completo em JSON |
+| `scrape-campos-golfe.py` | ~19 KB | Script Python para extrair/atualizar o dataset |
+
+> O `index.html` tem as imagens e o JSON **embutidos** — funciona como ficheiro único, sem dependências externas.
 
 ---
 
-## 📊 Estatísticas do Dataset (extraído em 2026-03-19)
+## 🚀 Como usar
+
+**Abrir a app:** duplo clique em `index.html` — abre directamente no browser.
+
+**Ver estatísticas:** abrir `stats.html` **no mesmo browser** onde se usa o `index.html`. Os dados são guardados em `localStorage`.
+
+**Atualizar o dataset:**
+```bash
+pip install requests beautifulsoup4
+python scrape-campos-golfe.py
+```
+Após correr o scraper, é necessário regenerar o `index.html` com o novo JSON (ver secção abaixo).
+
+---
+
+## 📊 Dataset — Estatísticas
 
 | Métrica | Valor |
 |---|---|
 | **Total de campos** | 90 |
-| **Com cartões de campo** | 89 |
+| **Com cartões completos** | 89 |
 | **Com coordenadas GPS** | 31 |
 | **Total de tees registados** | 530 |
 | **Total de buracos registados** | 1 044 |
 | **Distritos cobertos** | 19 |
+| **Extraído em** | 2026-03-19 |
 
 ### Distribuição por distrito (top 5)
 | Distrito | Campos |
@@ -34,7 +53,7 @@ Projeto de extração e consulta de todos os campos de golfe nacionais registado
 | Porto | 7 |
 | Santarém | 3 |
 
-### Tees por cor
+### Tees registados por cor
 | Cor | Ocorrências |
 |---|---|
 | ⬜ Branco | 116 |
@@ -54,23 +73,17 @@ Projeto de extração e consulta de todos os campos de golfe nacionais registado
   "meta": {
     "fonte": "scoring-pt.datagolf.pt",
     "total_campos": 90,
-    "extraido_em": "2026-03-19T16:53:54Z",
-    "range_pesquisado": "1-350",
-    "falhas": 0
+    "extraido_em": "2026-03-19T16:53:54Z"
   },
   "campos": [
     {
       "id": 25,
       "codigo": "025",
       "nome": "Estoril - Blue Course",
-      "proprietario": "Estoril Plage, S.A.",
-      "morada": "Avenida da República",
       "cidade": "Estoril",
-      "cod_postal": "2765-273 Estoril",
-      "telefone": "214 680 176",
-      "fax": null,
-      "email": "geral@golfestoril.com",
       "distrito": "Lisboa",
+      "telefone": "214 680 176",
+      "email": "geral@golfestoril.com",
       "website": "www.palacioestorilhotel.com",
       "data_abertura": "1/1/1929",
       "profissional": "Miguel Nunes Pedro, ...",
@@ -84,7 +97,6 @@ Projeto de extração e consulta de todos os campos de golfe nacionais registado
           "tees": [
             {
               "cor": "Amarelo",
-              "bgcolor": "#ffff00",
               "metros_total": 4662,
               "par_total": 68,
               "cr_homens": 64.6,
@@ -95,21 +107,12 @@ Projeto de extração e consulta de todos os campos de golfe nacionais registado
           ],
           "buracos": [
             {
-              "buraco": 1,
-              "par": 4,
-              "si": 3,
-              "metros": {
-                "Branco": 358,
-                "Amarelo": 351,
-                "Azul": 338,
-                "Vermelho": 322,
-                "Roxo": 176
-              }
+              "buraco": 1, "par": 4, "si": 3,
+              "metros": { "Branco": 358, "Amarelo": 351, "Azul": 338 }
             }
           ]
         }
-      ],
-      "url": "https://scoring-pt.datagolf.pt/scripts/course.asp?ncourse=025&ack=8428ACK987&club=ALL"
+      ]
     }
   ]
 }
@@ -117,107 +120,49 @@ Projeto de extração e consulta de todos os campos de golfe nacionais registado
 
 ---
 
-## 🔄 Atualizar o dataset
+## 🔄 Atualizar o dataset e regenerar o index.html
 
-### Pré-requisitos
+### 1. Correr o scraper
 ```bash
 pip install requests beautifulsoup4
-```
-
-### Correr o scraper
-```bash
 python scrape-campos-golfe.py
+# → gera campos-golfe-portugal.json actualizado
 ```
 
-O script itera os códigos `001` a `350`, faz pedidos concorrentes (5 em paralelo com pausa de 300ms entre lotes) e para cada campo:
+### 2. Regenerar o index.html
+O `index.html` tem o JSON embutido em base64. Para o actualizar com novos dados, é necessário re-executar o script de geração do HTML (disponível no repositório do projecto) ou substituir manualmente o array `CAMPOS` no início do bloco `<script>`.
 
-1. Extrai info geral de `course.asp` — nome, contactos, facilidades, coordenadas GPS
-2. Detecta automaticamente os cartões via iframes (`show_card.asp`)
-3. Para cada cartão extrai slope, course rating (homens e senhoras), par e metros buraco a buraco
-
-### Parâmetros configuráveis (topo do script)
+### Parâmetros do scraper
 ```python
 RANGE_FROM  = 1      # código de campo inicial
-RANGE_TO    = 350    # código de campo final (aumentar se necessário)
+RANGE_TO    = 350    # código de campo final
 CONCURRENCY = 5      # pedidos em paralelo
 DELAY_S     = 0.3    # pausa entre lotes (segundos)
 OUTPUT      = "campos-golfe-portugal.json"
 ```
 
-> ⚠️ **Nota sobre a chave ACK:** O parâmetro `ack=8428ACK987` foi retirado do URL público da FPG. Se o scraper começar a devolver erros de autenticação, verifica se a chave foi atualizada consultando a página da FPG.
+> ⚠️ **Nota sobre a chave ACK:** O parâmetro `ack=8428ACK987` foi retirado do URL público da FPG. Se o scraper começar a devolver erros, verifica se a chave foi actualizada na página da FPG.
 
 ---
 
-## ⚛️ App React (`campos-golfe-portugal.jsx`)
+## 📈 Estatísticas de utilização (`stats.html`)
 
-Interface web para consultar os campos com três funcionalidades:
+O `index.html` regista automaticamente em `localStorage`:
 
-- **Cartão de Campo** — seleciona região e campo, visualiza slope/CR por tee com indicador de dificuldade
-- **Lista de Campos** — tabela filtrável por região e pesquisa por nome
-- **Handicap de Campo** — calculadora WHS™ com fórmula completa
+| Dado | Detalhe |
+|---|---|
+| Acessos | Total de pageviews com data/hora |
+| Browser & OS | Chrome, Firefox, Edge, Safari · Windows, macOS, iOS, Android |
+| Dispositivo | Mobile, Tablet, Desktop |
+| Idioma | Locale do browser |
+| Campos consultados | Ranking dos campos mais vistos |
+| Pesquisas | Termos mais pesquisados |
+| Filtros usados | Distritos e facilidades mais filtradas |
+| Handicaps calculados | Contador total |
 
-### Como usar na tua app
-```tsx
-import data from "./campos-golfe-portugal.json";
+O dashboard (`stats.html`) tem exportação para **JSON** e **CSV** e auto-actualiza a cada 5 segundos.
 
-const campos = data.campos;
-
-// Aceder ao slope de um tee específico
-const campo = campos.find(c => c.codigo === "025");
-const cartao = campo.cartoes[1]; // Blue Course completo
-const teeAmarelo = cartao.tees.find(t => t.cor === "Amarelo");
-
-console.log(teeAmarelo.slope_homens);  // 113
-console.log(teeAmarelo.cr_homens);     // 64.6
-
-// Calcular Handicap de Campo (fórmula WHS™)
-function calcCourseHandicap(handicapIndex, slope, cr, par) {
-  return Math.round((handicapIndex * slope / 113) + (cr - par));
-}
-```
-
----
-
-## 🗺️ Coordenadas GPS
-
-31 dos 90 campos têm coordenadas extraídas do embed Google Maps presente na página da FPG. Os restantes 59 podem ser geocodificados usando a API gratuita do **Nominatim (OpenStreetMap)**:
-
-```python
-import requests, time
-
-def geocode(nome, cidade):
-    r = requests.get("https://nominatim.openstreetmap.org/search", params={
-        "q": f"{nome} golf {cidade} Portugal",
-        "format": "json", "limit": 1
-    }, headers={"User-Agent": "GolfPT/1.0"})
-    results = r.json()
-    if results:
-        return float(results[0]["lat"]), float(results[0]["lon"])
-    return None, None
-
-# Usar com delay para respeitar rate limit do Nominatim (1 req/s)
-lat, lon = geocode("Estoril Golf", "Estoril")
-time.sleep(1)
-```
-
----
-
-## 📝 Notas técnicas
-
-### Encoding
-O servidor `scoring-pt.datagolf.pt` serve UTF-8 real, mas alguns campos do primeiro scrape foram lidos com `latin-1` por engano, resultando em acentos corrompidos (ex: `ProprietÃ¡rio`). O scraper atual usa `r.encoding = "utf-8"` explicitamente para garantir leitura correta.
-
-### Múltiplos cartões
-Alguns campos têm mais do que um cartão (até 4), normalmente correspondendo a:
-- Diferentes layouts (ex: 9 buracos frente / 9 buracos trás separados)
-- Versões masculina e feminina com tees distintos
-- Campo com 27 buracos organizado em combinações de 9
-
-### Campos sem cartão
-1 campo (`id=1`, Sports Clube da Penha Longa) não tem cartão acessível — a página existe mas não contém iframes com show_card.
-
-### Fonte dos dados
-Todos os dados são propriedade da **Federação Portuguesa de Golfe** e do sistema **DataGolf**. Este dataset destina-se a uso pessoal e desenvolvimento. Para uso comercial, consulta a FPG.
+> Os dados ficam guardados apenas no browser onde a app é utilizada. Para estatísticas multi-utilizador seria necessário um servidor.
 
 ---
 
@@ -228,3 +173,15 @@ Todos os dados são propriedade da **Federação Portuguesa de Golfe** e do sist
 - [Campos Classificados WHS™](https://portal.fpg.pt/handicaps-course-rating/campos-classificados-whs/)
 - [Cálculo de Handicap de Campo](https://portal.fpg.pt/handicaps-course-rating/calculo-de-handicap-de-campo/)
 - [Sistema WHS™](https://www.whs.com)
+
+---
+
+## 📝 Notas técnicas
+
+**Fonte dos dados:** `scoring-pt.datagolf.pt` — sistema DataGolf da FPG. Todos os dados são propriedade da Federação Portuguesa de Golfe. Este dataset destina-se a uso pessoal e desenvolvimento.
+
+**Encoding:** O servidor serve UTF-8 mas declara latin-1 no Content-Type. O scraper força `r.encoding = "utf-8"` para leitura correcta.
+
+**Múltiplos cartões:** Alguns campos têm até 4 cartões (layouts de 9 buracos separados, combinações de 27 buracos, etc.).
+
+**GPS:** 31 campos têm coordenadas extraídas do embed Google Maps. Os restantes 59 podem ser geocodificados via Nominatim/OpenStreetMap.
