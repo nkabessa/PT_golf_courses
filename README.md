@@ -12,6 +12,7 @@ Dataset completo e interface web dos campos de golfe nacionais registados na **F
 | `stats.html` | ~15 KB | Dashboard de estatísticas de utilização |
 | `campos-golfe-portugal.json` | ~576 KB | Dataset completo em JSON |
 | `scrape-campos-golfe.py` | ~19 KB | Script Python para extrair/atualizar o dataset |
+| `build.py` | ~8 KB | Regenera o `index.html` a partir do JSON actualizado |
 
 > O `index.html` tem as imagens e o JSON **embutidos** — funciona como ficheiro único, sem dependências externas.
 
@@ -116,6 +117,26 @@ Após correr o scraper, é necessário regenerar o `index.html` com o novo JSON 
     }
   ]
 }
+```
+
+---
+
+## ⚡ Workflow de actualização
+
+```
+1. python scrape-campos-golfe.py   →  gera campos-golfe-portugal.json
+2. python build.py                 →  regenera index.html com os novos dados
+3. duplo clique em index.html      →  pronto
+```
+
+Ficheiros necessários na mesma pasta:
+```
+index.html
+build.py
+scrape-campos-golfe.py
+campos-golfe-portugal.json
+Pic1.jpg   (opcional — substitui imagens de fundo)
+Pic2.jpg   (opcional)
 ```
 
 ---
