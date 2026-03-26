@@ -33,8 +33,10 @@ DELAY_S     = 0.3
 OUTPUT      = "campos-golfe-portugal.json"
 TIMEOUT     = 15
 
-# Mapeamento de bgcolor para nome do tee
-TEE_COLORS = {
+# ------------------------------------------------------------
+# Mapeamento de bgcolor → nome do tee
+# ------------------------------------------------------------
+TEE_BGCOLOR_MAP = {
     "#ffffff": "Branco",
     "#ffff00": "Amarelo",
     "#0000ff": "Azul",
@@ -45,6 +47,11 @@ TEE_COLORS = {
     "#808080": "Cinzento",
     "#000000": "Preto",
 }
+# Cores inequivocamente tee (nunca são par/SI)
+UNAMBIGUOUS_TEE_COLORS = {
+    "#ffff00", "#0000ff", "#ff0000", "#a000a0",
+    "#ff8c00", "#008000", "#808080", "#000000"
+}
 
 SESSION = requests.Session()
 SESSION.headers.update({
@@ -54,40 +61,29 @@ SESSION.headers.update({
 # ------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------
-def get(url: str) -> str | None:
+def fetch(url: str) -> str | None:
+    """Faz um pedido HTTP e devolve o HTML. Encoding real é UTF-8."""
     try:
         r = SESSION.get(url, timeout=TIMEOUT)
-        # O servidor serve UTF-8 real apesar do Content-Type inconsistente
         r.encoding = "utf-8"
         return r.text
     except Exception:
         return None
 
-def fix_encoding(text: str | None) -> str | None:
-    """Corrige texto que foi lido como latin-1 mas é UTF-8."""
-    if not text:
-        return text
-    try:
-        return text.encode("latin-1").decode("utf-8")
-    except Exception:
-        return text
-
 def clean(text: str | None) -> str | None:
+    """Remove espaços e caracteres não-breaking."""
     if not text:
         return None
     text = text.replace("\xa0", "").replace("&nbsp;", "").strip()
     return text or None
 
-def normalize_color(bgcolor: str | None) -> str | None:
-    if not bgcolor:
-        return None
-    c = bgcolor.strip().lower()
-    if not c.startswith("#"):
-        c = "#" + c
-    return TEE_COLORS.get(c, c)
+def _norm_bg(bg: str) -> str:
+    """Normaliza bgcolor para lowercase com #."""
+    bg = bg.strip().lower()
+    return bg if bg.startswith("#") else "#" + bg
 
 # ------------------------------------------------------------
-# Parse course.asp  →  info geral + iframes + GPS
+# Parse course.asp → info geral + iframes + GPS
 # ------------------------------------------------------------
 def parse_course(html: str, ncourse: str) -> dict | None:
     if not html or len(html) < 300:
@@ -188,21 +184,19 @@ def parse_course(html: str, ncourse: str) -> dict | None:
         "profissional": profissional,
         "coordenadas": {"lat": lat, "lon": lon} if lat else None,
         "facilidades": facilidades,
-        "card_ids": card_ids,   # temporário, removido no output final
+        "card_ids": card_ids,  # temporário
         "cartoes": [],
         "url": f"{BASE_URL}/course.asp?ncourse={ncourse}&ack={ACK}&club={CLUB}",
     }
 
 # ------------------------------------------------------------
-# Parse show_card.asp  →  cartão completo com tees, buracos, slope/CR
+# Parse show_card.asp → cartão completo (18 buracos, slope, CR)
 # ------------------------------------------------------------
 def parse_card(html: str, card_id: str) -> dict | None:
     """
-    Extrai de show_card.asp:
-      - nome do cartão
-      - tees (cor, metros total, par, CR homens, slope homens, CR senhoras, slope senhoras)
-      - buracos (metros por tee, par, stroke index)
-      - arquitecto
+    Estrutura da linha de buraco (rowspan do separador colapsado pelo BS4):
+      [0]=hole_f  [1..n]=metros_f  [n+1]=par_f  [n+2]=si_f
+      [n+3]=hole_b  [n+4..2n+3]=metros_b  [2n+4]=par_b  [2n+5]=si_b
     """
     if not html or len(html) < 300:
         return None
@@ -211,13 +205,11 @@ def parse_card(html: str, card_id: str) -> dict | None:
 
     soup = BeautifulSoup(html, "html.parser")
 
-    # Nome do cartão — <b> no início
-    nome_cartao = None
+    nome = None
     b = soup.find("b")
     if b:
-        nome_cartao = clean(b.get_text())
+        nome = b.get_text(strip=True)
 
-    # Arquitecto
     arquitecto = None
     for td in soup.find_all("td", attrs={"align": "right"}):
         if "arquitecto" in td.get_text().lower() or "arquiteto" in td.get_text().lower():
@@ -231,212 +223,163 @@ def parse_card(html: str, card_id: str) -> dict | None:
                             arquitecto = val
             break
 
-    # Tabela principal — a maior tabela com buracos
+    # Tabela principal — tem "hole" no cabeçalho
     main_table = None
     for table in soup.find_all("table"):
         rows = table.find_all("tr")
-        # A tabela certa tem linha com "Hole" no cabeçalho
-        header_text = rows[0].get_text() if rows else ""
-        if "hole" in header_text.lower() and "par" in header_text.lower():
+        if rows and "hole" in rows[0].get_text().lower():
             main_table = table
             break
-
     if not main_table:
         return None
 
     rows = main_table.find_all("tr")
 
-    # Detectar quais bgcolors estão presentes (= quais tees existem)
-    # Percorrer todas as células com bgcolor para descobrir a ordem dos tees
+    # Detectar tee_order a partir da 1ª linha de dados (buraco 1-9)
+    first_row_cells = None
+    for row in rows[1:]:
+        cells = row.find_all("td")
+        if not cells:
+            continue
+        v0 = cells[0].get_text(strip=True).replace("\xa0", "").strip()
+        if re.match(r"^\d{1,2}$", v0) and 1 <= int(v0) <= 9:
+            first_row_cells = cells
+            break
+
+    if not first_row_cells:
+        return None
+
+    # Identificar tees:
+    # - Cores inequívocas (#ffff00, #0000ff, etc.) → sempre tee
+    # - Branco (#ffffff) → tee só se valor >= 50 (metros); abaixo de 50 é par/SI
     tee_order = []
-    seen_colors = set()
-    for row in rows:
-        for td in row.find_all("td", bgcolor=True):
-            bg = td.get("bgcolor", "").strip().lower()
-            if not bg.startswith("#"):
-                bg = "#" + bg
-            if bg in TEE_COLORS and bg not in seen_colors and bg != "#e9e9e9":
-                seen_colors.add(bg)
-                tee_order.append(bg)
-        if tee_order:
-            break  # já temos a ordem da primeira linha de dados
+    for cell in first_row_cells[1:]:
+        bg  = _norm_bg(cell.get("bgcolor", ""))
+        val = cell.get_text(strip=True).replace("\xa0", "").strip()
+        if bg in UNAMBIGUOUS_TEE_COLORS:
+            tee_order.append(bg)
+        elif bg == "#ffffff":
+            try:
+                if int(val) >= 50:
+                    tee_order.append(bg)
+                else:
+                    break
+            except ValueError:
+                break
+        else:
+            break
 
     n_tees = len(tee_order)
     if n_tees == 0:
         return None
 
-    # Inicializar estrutura de tees
-    tees_data = {
-        bg: {
-            "cor": normalize_color(bg),
-            "bgcolor": bg,
-            "metros_total": None,
-            "par_total": None,
-            "cr_homens": None,
-            "slope_homens": None,
-            "cr_senhoras": None,
-            "slope_senhoras": None,
-        }
-        for bg in tee_order
-    }
+    # Offsets (rowspan do separador já colapsado pelo BS4):
+    back_start = n_tees + 3  # índice da coluna do buraco da 2ª metade
 
-    # Buracos: lista de 18 (ou 9) entradas
+    tees_data = {bg: {
+        "cor": TEE_BGCOLOR_MAP[bg],
+        "bgcolor": bg,
+        "metros_total": None, "par_total": None,
+        "cr_homens": None, "slope_homens": None,
+        "cr_senhoras": None, "slope_senhoras": None,
+    } for bg in tee_order}
+
     buracos = []
+    any_slope_h = False
 
-    # Percorrer linhas para extrair dados
-    # Estrutura das linhas:
-    #   linhas 1-9  : buraco 1-9 (OUT) + buraco 10-18 (IN) em paralelo
-    #   linha OUT   : subtotais frente
-    #   linha IN    : subtotais trás (repetição)
-    #   linha C.Rat (Homens)
-    #   linha Slope (Homens)
-    #   linha TOT   : totais
-    #   linha C.Rat (Senhoras)
-    #   linha Slope (Senhoras)
-
-    current_mode = "holes"  # holes | cr_h | slope_h | cr_s | slope_s
-
-    for row in rows[1:]:  # skip header
-        tds = row.find_all("td")
-        if not tds:
+    for row in rows[1:]:
+        cells = row.find_all("td")
+        if not cells or len(cells) <= 2:
             continue
+        vals  = [td.get_text(strip=True).replace("\xa0", "").strip() for td in cells]
+        first = vals[0]
 
-        first_cell = clean(tds[0].get_text()) or ""
+        # Buraco frente (1-9)
+        if re.match(r"^\d{1,2}$", first) and 1 <= int(first) <= 9:
+            h_f     = int(first)
+            metros_f = {}
+            for i, bg in enumerate(tee_order):
+                v = vals[1 + i] if 1 + i < len(vals) else ""
+                if v.isdigit():
+                    metros_f[TEE_BGCOLOR_MAP[bg]] = int(v)
+            par_f = int(vals[n_tees + 1]) if n_tees + 1 < len(vals) and vals[n_tees + 1].isdigit() else None
+            si_f  = int(vals[n_tees + 2]) if n_tees + 2 < len(vals) and vals[n_tees + 2].isdigit() else None
+            buracos.append({"buraco": h_f, "par": par_f, "si": si_f, "metros": metros_f})
 
-        # Detectar tipo de linha pelo primeiro td
-        if first_cell.upper() in ("OUT", "IN", "TOT"):
-            if first_cell.upper() == "TOT":
-                # Linha de totais: extrair metros e par total por tee
-                colored = [td for td in tds if td.get("bgcolor", "").lower().strip("#") and
-                           "#" + td.get("bgcolor", "").lower().strip("#") in tee_order]
-                for i, bg in enumerate(tee_order):
-                    matching = [td for td in tds if td.get("bgcolor", "").lower() == bg.strip("#") or
-                                "#" + td.get("bgcolor", "").lower().strip("#") == bg]
-                    if matching:
-                        val = clean(matching[0].get_text())
-                        if val and val.isdigit():
-                            tees_data[bg]["metros_total"] = int(val)
-                # Par total está numa td bgcolor="#FFFFFF" após os tees
-                par_td = None
-                for td in reversed(tds):
-                    val = clean(td.get_text())
-                    if val and val.isdigit() and 54 <= int(val) <= 75:
-                        par_td = int(val)
-                        break
-                # Distribuir par_total para todos os tees (é igual para todos)
-                if par_td:
+            # Buraco trás (10-18) na mesma linha
+            if back_start < len(vals):
+                h_b_val = vals[back_start]
+                if re.match(r"^\d{1,2}$", h_b_val) and 10 <= int(h_b_val) <= 18:
+                    h_b      = int(h_b_val)
+                    metros_b = {}
+                    for i, bg in enumerate(tee_order):
+                        idx = back_start + 1 + i
+                        v   = vals[idx] if idx < len(vals) else ""
+                        if v.isdigit():
+                            metros_b[TEE_BGCOLOR_MAP[bg]] = int(v)
+                    par_b_idx = back_start + 1 + n_tees
+                    si_b_idx  = back_start + 2 + n_tees
+                    par_b = int(vals[par_b_idx]) if par_b_idx < len(vals) and vals[par_b_idx].isdigit() else None
+                    si_b  = int(vals[si_b_idx])  if si_b_idx  < len(vals) and vals[si_b_idx].isdigit()  else None
+                    buracos.append({"buraco": h_b, "par": par_b, "si": si_b, "metros": metros_b})
+
+        # TOT — totais
+        elif first.upper() == "TOT":
+            for i, bg in enumerate(tee_order):
+                idx = back_start + 1 + i
+                v   = vals[idx] if idx < len(vals) else ""
+                if v.isdigit():
+                    tees_data[bg]["metros_total"] = int(v)
+            par_idx = back_start + 1 + n_tees
+            if par_idx < len(vals) and vals[par_idx].isdigit():
+                pv = int(vals[par_idx])
+                if 54 <= pv <= 75:
                     for bg in tee_order:
-                        tees_data[bg]["par_total"] = par_td
-            continue
+                        tees_data[bg]["par_total"] = pv
 
-        if "c.rat" in first_cell.lower() or "course rat" in first_cell.lower():
-            # Verificar se é Homens ou Senhoras pelo texto da linha
-            row_text = row.get_text()
-            if "senhor" in row_text.lower():
-                current_mode = "cr_s"
-            else:
-                current_mode = "cr_h"
-            # Extrair valores por tee
-            for bg in tee_order:
-                matching = [td for td in tds
-                            if ("#" + td.get("bgcolor", "").lower().strip("#")) == bg
-                            or td.get("bgcolor", "").lower() == bg.strip("#")]
-                if matching:
-                    val = clean(matching[0].get_text())
-                    if val:
-                        try:
-                            fval = float(val)
-                            if current_mode == "cr_h":
-                                tees_data[bg]["cr_homens"] = fval
-                            else:
-                                tees_data[bg]["cr_senhoras"] = fval
-                        except ValueError:
-                            pass
-            continue
+        # C.Rat.
+        elif "c.rat" in first.lower():
+            mode = "s" if "senhor" in row.get_text().lower() else "h"
+            for i, bg in enumerate(tee_order):
+                v = vals[1 + i] if 1 + i < len(vals) else ""
+                try:
+                    fv = float(v)
+                    if 50 <= fv <= 90:
+                        if mode == "h": tees_data[bg]["cr_homens"]   = fv
+                        else:           tees_data[bg]["cr_senhoras"]  = fv
+                except ValueError:
+                    pass
 
-        if "slope" in first_cell.lower():
-            if current_mode in ("cr_h",):
-                current_mode = "slope_h"
-            elif current_mode in ("cr_s",):
-                current_mode = "slope_s"
-            else:
-                # Determinar pelo contexto: slope depois de cr_h ou cr_s
-                # Se já temos slope_h, é slope_s
-                any_slope_h = any(v["slope_homens"] for v in tees_data.values())
-                current_mode = "slope_s" if any_slope_h else "slope_h"
+        # Slope
+        elif first.lower() == "slope":
+            mode = "s" if any_slope_h else "h"
+            for i, bg in enumerate(tee_order):
+                v = vals[1 + i] if 1 + i < len(vals) else ""
+                if v.isdigit():
+                    iv = int(v)
+                    if 50 <= iv <= 160:
+                        if mode == "h": tees_data[bg]["slope_homens"]   = iv
+                        else:           tees_data[bg]["slope_senhoras"]  = iv
+            if mode == "h":
+                any_slope_h = True
 
-            for bg in tee_order:
-                matching = [td for td in tds
-                            if ("#" + td.get("bgcolor", "").lower().strip("#")) == bg
-                            or td.get("bgcolor", "").lower() == bg.strip("#")]
-                if matching:
-                    val = clean(matching[0].get_text())
-                    if val and val.isdigit():
-                        ival = int(val)
-                        if 50 <= ival <= 160:
-                            if current_mode == "slope_h":
-                                tees_data[bg]["slope_homens"] = ival
-                            else:
-                                tees_data[bg]["slope_senhoras"] = ival
-            continue
-
-        # Linha de buraco: primeiro td é número do buraco
-        if re.match(r"^\d{1,2}$", first_cell):
-            hole_num = int(first_cell)
-            if 1 <= hole_num <= 18:
-                # Coletar metros por tee
-                metros = {}
-                for bg in tee_order:
-                    matching = [td for td in tds
-                                if ("#" + td.get("bgcolor", "").lower().strip("#")) == bg
-                                or td.get("bgcolor", "").lower() == bg.strip("#")]
-                    if matching:
-                        val = clean(matching[0].get_text())
-                        if val and val.isdigit():
-                            metros[normalize_color(bg)] = int(val)
-
-                # Par e S.I.: últimas 2 células com bgcolor #FFFFFF não-tee
-                par_hole = si_hole = None
-                white_tds = [td for td in tds
-                             if td.get("bgcolor", "").lower() in ("#ffffff", "ffffff", "white", "#FFFFFF")
-                             and not any(td.get("bgcolor", "").lower() == bg.strip("#") for bg in tee_order)]
-                # Fallback: últimas 2 células da primeira metade da linha
-                # A estrutura da linha tem 2 metades (frente + trás) separadas por td vazio
-                # Tentamos pegar o par e SI da parte mais próxima do número do buraco
-                for td in tds:
-                    val = clean(td.get_text())
-                    if val and val.isdigit():
-                        ival = int(val)
-                        if 3 <= ival <= 6 and par_hole is None:
-                            par_hole = ival
-                        elif 1 <= ival <= 18 and si_hole is None and td != tds[0]:
-                            si_hole = ival
-
-                buracos.append({
-                    "buraco": hole_num,
-                    "par": par_hole,
-                    "si": si_hole,
-                    "metros": metros,
-                })
-
-    # Limpar card_ids temporário e montar output
-    tees_list = [v for v in tees_data.values()]
+    buracos.sort(key=lambda x: x["buraco"])
 
     return {
-        "card_id": card_id,
-        "nome": nome_cartao,
+        "card_id":    card_id,
+        "nome":       nome,
         "arquitecto": arquitecto,
-        "tees": tees_list,
-        "buracos": sorted(buracos, key=lambda x: x["buraco"]),
+        "tees":       list(tees_data.values()),
+        "buracos":    buracos,
     }
 
 # ------------------------------------------------------------
-# Scraper principal
+# Scraper de um campo completo (course.asp + show_card.asp)
 # ------------------------------------------------------------
 def scrape_course(ncourse: str) -> dict | None:
-    # 1. Buscar info geral
-    url = f"{BASE_URL}/course.asp?ncourse={ncourse}&ack={ACK}&club={CLUB}"
-    html = get(url)
+    # 1. Info geral
+    url  = f"{BASE_URL}/course.asp?ncourse={ncourse}&ack={ACK}&club={CLUB}"
+    html = fetch(url)
     if not html:
         return None
 
@@ -444,21 +387,21 @@ def scrape_course(ncourse: str) -> dict | None:
     if not campo:
         return None
 
-    # 2. Buscar cada cartão encontrado nos iframes
+    # 2. Cartões detectados nos iframes
     for card_id in campo.get("card_ids", []):
-        card_url = f"{BASE_URL}/show_card.asp?ncourse={card_id}&inframe=Y&stat=Y&info=Y&ack={ACK}&club={CLUB}"
-        card_html = get(card_url)
+        card_url  = f"{BASE_URL}/show_card.asp?ncourse={card_id}&inframe=Y&stat=Y&info=Y&ack={ACK}&club={CLUB}"
+        card_html = fetch(card_url)
         if card_html:
             cartao = parse_card(card_html, card_id)
             if cartao:
                 campo["cartoes"].append(cartao)
 
-    # Se não havia iframes, tentar descobrir cartões por força bruta (até MAX_CARDS)
+    # 3. Fallback: força bruta se não havia iframes
     if not campo["card_ids"]:
         for i in range(1, MAX_CARDS + 1):
-            card_id = f"{ncourse}-{i}"
-            card_url = f"{BASE_URL}/show_card.asp?ncourse={card_id}&inframe=Y&stat=Y&info=Y&ack={ACK}&club={CLUB}"
-            card_html = get(card_url)
+            card_id   = f"{ncourse}-{i}"
+            card_url  = f"{BASE_URL}/show_card.asp?ncourse={card_id}&inframe=Y&stat=Y&info=Y&ack={ACK}&club={CLUB}"
+            card_html = fetch(card_url)
             if not card_html:
                 break
             if "Erro de Parametros" in card_html or "BOF or EOF" in card_html:
@@ -467,12 +410,12 @@ def scrape_course(ncourse: str) -> dict | None:
             if cartao:
                 campo["cartoes"].append(cartao)
 
-    # Remover campo temporário
     del campo["card_ids"]
-
     return campo
 
-
+# ------------------------------------------------------------
+# Main
+# ------------------------------------------------------------
 def main():
     print(f"\n⛳  Scraper de Campos de Golfe Portugal")
     print(f"   Intervalo: {RANGE_FROM} → {RANGE_TO}")
@@ -494,7 +437,7 @@ def main():
                     if campo:
                         results.append(campo)
                         n_cartoes = len(campo["cartoes"])
-                        n_tees = sum(len(c["tees"]) for c in campo["cartoes"])
+                        n_tees    = sum(len(c["tees"]) for c in campo["cartoes"])
                         print(f"  ✓ [{ncourse}] {campo['nome']} — {n_cartoes} cartão(ões), {n_tees} tee(s)")
                     else:
                         print(f"  · [{ncourse}] vazio")
@@ -506,18 +449,18 @@ def main():
             time.sleep(DELAY_S)
 
         done = min(batch_start + CONCURRENCY, len(numbers))
-        pct = done / len(numbers) * 100
+        pct  = done / len(numbers) * 100
         print(f"\n  [{done}/{len(numbers)} — {pct:.0f}%] — {len(results)} campos encontrados\n")
 
     results.sort(key=lambda x: x["id"])
 
     output = {
         "meta": {
-            "fonte": "scoring-pt.datagolf.pt",
-            "total_campos": len(results),
-            "extraido_em": datetime.utcnow().isoformat() + "Z",
-            "range_pesquisado": f"{RANGE_FROM}-{RANGE_TO}",
-            "falhas": len(failed),
+            "fonte":             "scoring-pt.datagolf.pt",
+            "total_campos":      len(results),
+            "extraido_em":       datetime.utcnow().isoformat() + "Z",
+            "range_pesquisado":  f"{RANGE_FROM}-{RANGE_TO}",
+            "falhas":            len(failed),
         },
         "campos": results,
     }
